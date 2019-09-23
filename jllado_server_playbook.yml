@@ -1,0 +1,233 @@
+---
+- hosts: jllado-server, default
+  remote_user: jllado
+  become: true
+  tasks:
+  - name: install vim
+    apt:
+        name: vim
+        update_cache: yes
+  - name: vim default editor
+    shell: update-alternatives --set editor /usr/bin/vim.basic
+  - name: install gparted
+    apt:
+        name: gparted
+  - name: install silver searcher
+    apt:
+        name: silversearcher-ag
+  - name: install curl
+    apt:
+        name: curl
+  - name: install git
+    apt:
+        name: git
+  - name: gnome tweak tools
+    apt:
+        name: gnome-tweak-tool
+  - name: gconf-editor
+    apt:
+        name: gconf-editor
+  - name: install htop
+    apt:
+        name: htop
+  - name: htop setup
+    become_user: jllado
+    block:
+      - name: create htop config
+        file:
+          path: /home/jllado/.config/htop
+          state: directory
+      - name: htop config file
+        copy:
+            dest: /home/jllado/.config/htop/htoprc
+            content: |
+                        # Beware! This file is rewritten by htop when settings are changed in the interface.
+                        # The parser is also very primitive, and not human-friendly.
+                        fields=0 48 17 18 38 39 40 2 46 47 49 1
+                        sort_key=47
+                        sort_direction=1
+                        hide_threads=0
+                        hide_kernel_threads=1
+                        hide_userland_threads=1
+                        shadow_other_users=1
+                        show_thread_names=0
+                        show_program_path=1
+                        highlight_base_name=0
+                        highlight_megabytes=1
+                        highlight_threads=1
+                        tree_view=0
+                        header_margin=1
+                        detailed_cpu_time=1
+                        cpu_count_from_zero=0
+                        update_process_names=0
+                        account_guest_in_cpu_meter=0
+                        color_scheme=0
+                        delay=15
+                        left_meters=CPU AllCPUs Memory Swap
+                        left_meter_modes=2 1 1 1
+                        right_meters=Tasks LoadAverage Uptime
+                        right_meter_modes=2 2 2
+  - name: git config
+    tags:
+      - gitconfig
+    become_user: jllado
+    block:
+      - name: register bash-git-prompt script
+        stat: path=/home/jllado/.bash-git-prompt
+        register: bash_git_prompt
+      - name: download git bash prompt script
+        command: git clone https://github.com/magicmonty/bash-git-prompt.git /home/jllado/.bash-git-prompt --depth=1
+        when: bash_git_prompt.stat.exists == False
+      - name: setup bash-git-prompt
+        blockinfile:
+            dest: /home/jllado/.bashrc
+            marker: "#{mark} bash-git-prompt"
+            block: |
+              GIT_PROMPT_ONLY_IN_REPO=1
+              source ~/.bash-git-prompt/gitprompt.sh
+        when: bash_git_prompt.stat.exists == False
+      - name: git aliases
+        shell: curl -L "https://gist.githubusercontent.com/jllado/14f0afa90702f9c5721b/raw/ad9d69b83fad83fa6881f01e351cf4f708c3703b/gitconfig" -o /home/jllado/.gitconfig
+      - name: git user
+        blockinfile:
+            dest: /home/jllado/.gitconfig
+            marker: "#{mark} user"
+            block: |
+                    [user]
+                            email = jllado@gmail.com
+                            name = Juan Lladó
+      - name: git credentials cache
+        blockinfile:
+            dest: /home/jllado/.gitconfig
+            marker: "#{mark} credentials cache"
+            block: |
+                    [credential]
+                            helper = cache --timeout 86400
+      - name: git editor
+        blockinfile:
+            dest: /home/jllado/.gitconfig
+            marker: "#{mark} editor"
+            block: |
+                   [core]
+                           editor = 'vim'
+  - name: bash aliases
+    become_user: jllado
+    blockinfile:
+        dest: /home/jllado/.bashrc
+        marker: "#{mark} aliases"
+        block: |
+                alias g='git'
+                alias ls='ls -aF --color'
+  - name: docker setup
+    tags:
+      - docker
+    block:
+      - name: register docker setup
+        command: dpkg-query -W docker-ce
+        ignore_errors: yes
+        register: docker
+      - name: install docker tools
+        command: apt-get -y install apt-transport-https ca-certificates software-properties-common
+        when: docker.stderr.find('no packages found') != -1
+      - name: docker certificate
+        shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+        when: docker.stderr.find('no packages found') != -1
+      - name: docker certificate
+        command: apt-key fingerprint 0EBFCD88
+        when: docker.stderr.find('no packages found') != -1
+      - name: docker certificate
+        command: apt-key fingerprint 0EBFCD88
+        when: docker.stderr.find('no packages found') != -1
+      - name: docker repository
+        shell: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+        when: docker.stderr.find('no packages found') != -1
+      - name: install docker
+        apt:
+            name: docker-ce
+            update_cache: yes
+        when: docker.stderr.find('no packages found') != -1
+      - name: create docker group
+        group:
+            name: docker
+            state: present
+        when: docker.stderr.find('no packages found') != -1
+      - name: add user to docker group
+        command: usermod -aG docker jllado
+        when: docker.stderr.find('no packages found') != -1
+      - name: register docker-compose
+        stat: path=/usr/local/bin/docker-compose
+        register: docker_compose
+      - name: download docker-compose
+        shell: curl -L "https://github.com/docker/compose/releases/download/1.23.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        when: docker_compose.stat.exists == False
+      - name: permissions docker-compose
+        shell: chmod +x /usr/local/bin/docker-compose
+        when: docker_compose.stat.exists == False
+      - name: check docker compose
+        shell: docker-compose --version
+  - name: java setup
+    tags:
+      - java
+    become_user: jllado
+    block:
+      - name: install sdkman
+        shell: curl -s "https://get.sdkman.io" | bash
+      - name: install java
+        shell: source /home/jllado/.sdkman/bin/sdkman-init.sh && sdk install java 12.0.2-open
+        register: output
+        args:
+          executable: /bin/bash
+  - name: tmux setup
+    block:
+      - name: install tmux
+        apt:
+            name: tmux
+      - name: install tmuxinator
+        apt:
+            name: tmuxinator
+      - name: create tmuxinator config directory
+        file:
+            path: /home/jllado/.tmuxinator 
+            state: directory
+      - name: terminal tmux at start
+        blockinfile:
+            dest: /home/jllado/.bashrc
+            marker: "#{mark} tmux"
+            block: |
+                    if [[ ! $TERM =~ screen ]]; then
+                        exec tmux
+                    fi
+  - name: swap off old
+    ignore_errors: yes
+    tags:
+      - swap
+    block:
+      - name: swap off
+        command: swapoff /swapfile
+      - name: delete old swap file
+        command: rm /swapfile
+  - name: swap set up
+    tags:
+      - swap
+    block:
+      - name: create new swap file
+        command: fallocate -l 15g /swapfile
+      - name: add permissions to swap file
+        command: chmod 600 /swapfile
+      - name: format swap file
+        command: mkswap /swapfile
+      - name: swap on
+        command: swapon /swapfile
+  - name: gnome ubuntu settings
+    become_user: jllado
+    block:
+      - command: gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+      - command: gsettings set org.gnome.desktop.wm.keybindings begin-move []
+      - command: gsettings set org.gnome.desktop.wm.keybindings begin-resize []
+      - command: gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-left []
+      - command: gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-right []
+      - command: gsettings set org.gnome.settings-daemon.plugins.media-keys terminal []
+      - command: gsettings set org.gnome.desktop.interface clock-show-date true
+      - command: gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled true
+      - command: gsettings set org.gnome.desktop.wm.keybindings toggle-maximized [] 
+      - command: gsettings set org.gnome.desktop.interface menubar-accel []
