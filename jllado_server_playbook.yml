@@ -21,6 +21,17 @@
   - name: install git
     apt:
         name: git
+  - name: install make
+    tags:
+      - noip
+    apt:
+        name: make
+  - name: install gcc
+    tags:
+      - noip
+    apt:
+        name: gcc
+        update_cache: yes
   - name: gnome tweak tools
     apt:
         name: gnome-tweak-tool
@@ -67,6 +78,92 @@
                         left_meter_modes=2 1 1 1
                         right_meters=Tasks LoadAverage Uptime
                         right_meter_modes=2 2 2
+  - name: rc.local
+    tags:
+      - noip
+    block:
+      - name: register rc.local
+        stat: path=/etc/rc.local
+        register: rc_local
+      - name: rc local service file
+        when: rc_local.stat.exists == False
+        copy:
+            dest: /etc/systemd/system/rc-local.service
+            content: |
+                       [Unit]
+                       Description=/etc/rc.local Compatibility
+                       ConditionPathExists=/etc/rc.local
+                        
+                       [Service]
+                       Type=forking
+                       ExecStart=/etc/rc.local start
+                       TimeoutSec=0
+                       StandardOutput=tty
+                       RemainAfterExit=yes
+                       SysVStartPriority=99
+                        
+                       [Install]
+                       WantedBy=multi-user.target
+      - name: rc local file
+        when: rc_local.stat.exists == False
+        copy:
+            dest: /etc/rc.local
+            content: |
+                       #!/bin/sh -e
+                       #
+                       # rc.local
+                       #
+                       # This script is executed at the end of each multiuser runlevel.
+                       # Make sure that the script will "exit 0" on success or any other
+                       # value on error.
+                       #
+                       # In order to enable or disable this script just change the execution
+                       # bits.
+                       #
+                       # By default this script does nothing.
+                       
+                       exit 0
+      - name: rc_local executable
+        command: chmod +x /etc/rc.local
+        when: rc_local.stat.exists == False
+      - name: enable rc_local service
+        command: systemctl enable rc-local
+        when: rc_local.stat.exists == False
+      - name: run rc_local service
+        command: systemctl start rc-local.service 
+        when: rc_local.stat.exists == False
+  - name: noip
+    tags:
+      - noip
+    block:
+      - name: register noip
+        stat: path=/usr/local/bin/noip2
+        register: noip2
+      - name: download noip
+        command: wget http://www.no-ip.com/client/linux/noip-duc-linux.tar.gz
+        when: noip2.stat.exists == False
+      - name: uncompress noip
+        command: tar xf noip-duc-linux.tar.gz
+        when: noip2.stat.exists == False
+      - name: build noip
+        make: 
+          chdir: ./noip-2.1.9-1
+        when: noip2.stat.exists == False
+      - name: install noip
+        command: mv ./noip-2.1.9-1/noip2 /usr/local/bin/
+        when: noip2.stat.exists == False
+      - name: setup noip
+        command: noip2 -C -u jllado@gmail.com -p {{ noippassword }} -U 30 -I {{ network_interface }} 
+        when: noip2.stat.exists == False
+      - name: noip boot
+        blockinfile:
+            dest: /etc/rc.local
+            insertbefore: "exit 0"
+            marker: "#{mark} noip"
+            block: |
+              /usr/local/bin/noip2
+      - name: run noip
+        command: systemctl restart rc-local.service
   - name: git config
     tags:
       - gitconfig
